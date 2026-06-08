@@ -1,0 +1,104 @@
+#!/usr/bin/env python3
+"""Auto-generated carousel craft.py for {{profile}}/{{slug}}.
+
+One PNG per slide → outputs/v1/. Each slide is routed by MODALITY (post.slide_modality):
+  - text-template slide (legend/quote/info/…) → HTML render with real fonts (render.html_renderer)
+  - art-directed / image slide → the profile engine (edit if it has a reference/grounded image,
+    else generate). Engine is selected per-profile and resolved via the registry, so
+    openai_gpt_image_2 <-> gemini_image is a one-word change.
+Edit freely — this file is materialized once and then becomes yours.
+"""
+import os
+import sys
+from pathlib import Path
+
+from social_media_agent.brand.brand_loader import list_brand_pages, parse_design_md, parse_voice_md
+from social_media_agent.brand.prompt_builder import build_prompt
+from social_media_agent.engines import get_engine
+from social_media_agent.engines.spec import resolve_gen_kwargs
+from social_media_agent.grounding.ground import collect_grounded_refs
+from social_media_agent.post.slide_modality import classify
+from social_media_agent.render.html_renderer import render_html, text_slide_html
+from social_media_agent.render.image_renderer import save
+from social_media_agent.utils.env import find_repo_root, load_env
+
+HERE = Path(__file__).resolve()
+REPO_ROOT = find_repo_root(HERE)
+PROFILE = REPO_ROOT / "profiles" / "{{profile}}"
+POST_DIR = HERE.parent
+OUT_DIR = POST_DIR / "outputs" / "v1"
+SIZE = "{{size}}"
+W, H = (int(x) for x in SIZE.split("x"))
+
+ENGINE = "{{engine}}"
+FORMAT = "{{format}}"
+
+SLIDES = {{slides_repr}}
+
+
+def main():
+    load_env(REPO_ROOT / ".env", inject=True)
+    engine = get_engine(ENGINE)
+    design, _ = parse_design_md(PROFILE / "brand-kit" / "DESIGN.md")
+    voice, _ = parse_voice_md(PROFILE / "VOICE.md")
+    brand_pages = list_brand_pages(PROFILE / "brand-kit" / "pages")
+    grounded_refs = collect_grounded_refs(POST_DIR)
+    gen_kwargs = resolve_gen_kwargs(ENGINE, FORMAT)
+    api_key = os.environ.get(engine.API_KEY_ENV)
+    print(f"[craft] engine={ENGINE} {len(SLIDES)} slides; brand={len(brand_pages)} grounded={len(grounded_refs)}")
+    if not brand_pages:
+        print(
+            "[craft] WARNING: no brand pages loaded from brand-kit/pages/ — image slides will "
+            "lack the brand style anchor. Check the dir has png/jpg/jpeg/webp images.",
+            file=sys.stderr,
+        )
+
+    for i, slide in enumerate(SLIDES, start=1):
+        mode = classify(slide)
+        name = slide.get("name", f"slide_{i:02d}")
+        out = OUT_DIR / f"{i:02d}-{name}.png"
+
+        if mode == "html":
+            html = text_slide_html(
+                design,
+                title=slide.get("title", ""),
+                paragraphs=slide.get("paragraphs", []),
+                source=slide.get("source"),
+                kicker=slide.get("kicker"),
+                width=W,
+                height=H,
+            )
+            render_html(html, out, width=W, height=H)
+            print(f"[craft] slide {i}/{len(SLIDES)} '{name}' → HTML → {out}")
+            continue
+
+        # image-dominant
+        if not api_key:
+            sys.exit(f"ERROR: {engine.API_KEY_ENV} not set (needed for image slides; engine {ENGINE})")
+        ref = slide.get("ref")
+        source_refs = []
+        if ref:
+            ref_path = Path(ref)
+            source_refs = [ref_path if ref_path.is_absolute() else (POST_DIR / ref_path)]
+        text_prompt, image_refs = build_prompt(
+            task=slide.get("task", ""),
+            design=design,
+            voice=voice,
+            brand_pages=brand_pages,
+            extra_refs=source_refs,
+            grounded_refs=grounded_refs,
+            ref_limit=engine.MAX_REFS,
+        )
+        # edit() when we have a layout/grounded anchor; brand pages alone don't force it.
+        if source_refs or grounded_refs:
+            png = engine.edit(api_key=api_key, prompt=text_prompt, images=image_refs, **gen_kwargs)
+            how = "edit"
+        else:
+            png = engine.generate(api_key=api_key, prompt=text_prompt, **gen_kwargs)
+            how = "generate"
+        save(png, out)
+        print(f"[craft] slide {i}/{len(SLIDES)} '{name}' → image/{how} → {out}")
+
+
+if __name__ == "__main__":
+    main()

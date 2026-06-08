@@ -1,0 +1,43 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.pytest_cache/
+*.egg-info/
+.venv/
+venv/
+
+# Local Cobalt API source/cache (provisioned by `python -m social_media_agent.cobalt`)
+.cobalt/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Environment
+.env
+.env.local
+
+# Per-profile generated content (don't bloat repo)
+profiles/*/posts/*/*/source/
+profiles/*/posts/*/*/outputs/v*/
+profiles/*/posts/*/*/outputs/final/*.png
+profiles/*/posts/*/*/outputs/final/*.mp4
+
+# Keep structure markers
+!profiles/*/posts/*/*/outputs/final/.gitkeep
+!profiles/*/posts/*/*/source/.gitkeep
+
+# Editor
+.vscode/
+.idea/
+*.swp
+
+# Raw / third-party / regenerable references — recipes (brief/craft) are versioned, raw inputs are not
+profiles/*/references/
+profiles/*/posts/*/*/refs/grounded/
+
+# Keep per-profile structure markers
+!profiles/*/references/.gitkeep
+!profiles/*/assets/.gitkeep
+!profiles/*/brand-kit/pages/.gitkeep
